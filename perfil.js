@@ -31,7 +31,7 @@ import {
 // Enlaces del menú «Ayúdanos a mejorar» y «Apoya al desarrollador».
 // Si están vacíos se muestra un aviso de «próximamente».
 const ENLACE_AYUDA = 'https://docs.google.com/forms/d/e/1FAIpQLScOpQ_o1jgW03ToPQfZ3NuXuD2U5GFGxOACp2jqRKi0ldPbPQ/viewform?usp=dialog';
-const ENLACE_APOYO = 'https://pin.it/7ouKemphj';
+const ENLACE_APOYO = 'https://apoya-al-desarrollador.previewship.net';
 
 const APODO_DEFECTO = 'Jugador Anónimo';
 const AVATAR_DEFECTO = '🕵️';
