@@ -242,6 +242,10 @@ const EXACTO = {
   // ------------------------------------------------------------ errores y avisos (modales)
   'Error': 'Error',
   'Error de sincronización': 'Sync error',
+  'Categoría oficial 🔒': 'Official category 🔒',
+  'Categoría oficial (solo lectura)': 'Official category (read-only)',
+  'Las categorías oficiales son de solo lectura. Crea una categoría propia con otro nombre para añadir tus palabras.': 'Official categories are read-only. Create your own category with a different name to add your words.',
+  'Todavía no hay sesión iniciada. Espera un momento e inténtalo de nuevo.': 'You are not signed in yet. Wait a moment and try again.',
   'No se pudieron guardar los cambios en la nube. Revisa tu conexión y las reglas de Firestore.': 'Changes could not be saved to the cloud. Check your connection and the Firestore rules.',
   'No se pudo eliminar la categoría de la nube.': 'The category could not be deleted from the cloud.',
   'El campo no puede estar vacío.': 'This field cannot be empty.',
