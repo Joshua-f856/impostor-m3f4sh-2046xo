@@ -96,6 +96,7 @@
                 <button class="btn main-btn" onclick="cambiarPantalla('configVotacion')">🗳️ Modo de Votación</button>
                 <button class="btn main-btn" onclick="cambiarPantalla('configCategorias')">🗂️ Editar
                     Categorías</button>
+                <button class="btn main-btn" onclick="mostrarPanelEstadisticas()">📊 Estadísticas locales</button>
                 <button class="btn play-btn play-btn-grande" onclick="cambiarPantalla('configSeleccionCategorias')">▶️
                     INICIAR JUEGO</button>
                     <button class="btn volver" onclick="cambiarPantalla('seleccionModoJuego')">Volver</button>
@@ -668,9 +669,6 @@
                     class="drawer-icono">📤</span><span data-i18n="menu.exportar">Exportar datos</span></button>
             <button class="drawer-item" type="button" onclick="cerrarMenuLateral(); importarDatos()"><span
                     class="drawer-icono">📥</span><span data-i18n="menu.importar">Importar datos</span></button>
-            <button class="drawer-item" type="button" onclick="cerrarMenuLateral(); mostrarPanelEstadisticas()"><span
-                    class="drawer-icono">📊</span><span data-i18n="menu.stats">Estadísticas de partidas
-                    locales</span></button>
             <button class="drawer-item" type="button" onclick="cerrarMenuLateral(); restablecerTodo()"><span
                     class="drawer-icono">🔄</span><span data-i18n="menu.reset">Restablecer todo</span></button>
 
