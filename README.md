@@ -306,7 +306,7 @@ cd tests && sh preparar.sh && node privada.mjs && node publica-misterio.mjs && n
 ### Limitaciones conocidas
 - El anfitrión es el "servidor": un anfitrión malintencionado podría leer los roles. Para blindarlo del todo habría que mover el motor a Cloud Functions.
 - Si el anfitrión cierra la pestaña a mitad de partida, la partida queda en pausa (los demás reciben un aviso y pueden salir).
-- Las categorías (`categorias`) son globales y compartidas por todos los usuarios de la app.
+- Las categorías **oficiales** (`categorias`) las ven todos pero solo las edita el administrador (UID fijado en `firestore.rules` y en `ADMIN_UID` de `script.js`; para editarlas hay que iniciar sesión con Google). Cada usuario puede crear las suyas en `usuarios/{uid}/categorias`; si un nombre coincide, gana la propia. Las categorías propias solo se usan cuando esa persona es la anfitriona de la sala.
 
 ---
 
@@ -342,7 +342,7 @@ Este proyecto fue desarrollado con fines educativos.
 
 **Seguridad**
 - **Inyección de HTML (XSS):** palabras, pistas y categorías vienen de la nube y cualquier usuario puede escribirlas; el modo offline las insertaba sin escapar. Ahora todo se escapa (`esc()`).
-- **`firestore.rules`:** la regla suelta de `usuarios` que indicaba este README anulaba la validación de estadísticas. Eliminada; el perfil acepta el campo `actualizado` que escribe `perfil.js`; las categorías validan sus campos. *Sigue siendo posible que cualquier usuario autenticado borre categorías globales (el editor del juego lo usa): si quieres blindarlo, mueve la edición a una colección por usuario.*
+- **`firestore.rules`:** la regla suelta de `usuarios` que indicaba este README anulaba la validación de estadísticas. Eliminada; el perfil acepta el campo `actualizado` que escribe `perfil.js`; las categorías validan sus campos. Las categorías oficiales quedan de solo lectura para todos menos el administrador, y cada usuario tiene su propia colección (`usuarios/{uid}/categorias`).
 
 **Visual**
 - Faltaba **todo el CSS** del menú lateral (☰), el acceso, el perfil, las estadísticas, los avatares y los botones naranja/fantasma: se veían sin formato. Añadido (secciones 29-34 de `style.css`).
