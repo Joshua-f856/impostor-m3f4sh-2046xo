@@ -25,6 +25,7 @@ const EXACTO = {
   '⏳ Configurar Tiempo': '⏳ Set Up Timer',
   '🗳️ Modo de Votación': '🗳️ Voting Mode',
   '🗂️ Editar Categorías': '🗂️ Edit Categories',
+  '📊 Estadísticas locales': '📊 Local Stats',
   '▶️ INICIAR JUEGO': '▶️ START GAME',
   'Volver': 'Back',
   '¡AQUÍ NADIE ES DE FIAR!': 'NOBODY HERE CAN BE TRUSTED!',
