@@ -12,6 +12,7 @@ import {
   getDocs,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 import { initOnline, repartirRoles, maxImpostoresPorModo } from "./online.js";
 import { iniciarI18n } from "./i18n.js";
@@ -67,11 +68,95 @@ const estado = {
   estadisticas: {}
 };
 
-const categoriaDocIds = new Map();
+// =====================================================================================
+// Categorías en la nube
+//   · OFICIALES  -> colección `categorias`. Todos las leen; SOLO el administrador (ADMIN_UID) escribe.
+//   · PROPIAS    -> `usuarios/{uid}/categorias`. Cada usuario crea y edita solo las suyas.
+// Las reglas de Firestore (firestore.rules) hacen cumplir esto; aquí solo se evita que el usuario
+// intente algo que va a ser rechazado. El ADMIN_UID no es un secreto: lo que protege es que nadie
+// más puede iniciar sesión como esa cuenta (activa la verificación en dos pasos de tu Google).
+// =====================================================================================
+const ADMIN_UID = 'BJwdDePHHlQYRwDiL7ku2o19cCF3';
+const auth = getAuth(app);
+
+const remotoOficial = new Map(); // nombre -> { id, palabras }
+const remotoPropio = new Map();  // nombre -> { id, palabras }
+let desuscribirOficiales = null;
+let desuscribirPropias = null;
+let uidPropias = null;
+
+const esAdminCategorias = () => !!auth.currentUser && auth.currentUser.uid === ADMIN_UID;
+
+// ¿Puede este usuario modificar o borrar la categoría? Las oficiales son de solo lectura salvo para el administrador.
+function puedeEditarCategoria(nombre) {
+  if (esAdminCategorias()) return true;
+  return !(remotoOficial.has(nombre) && !remotoPropio.has(nombre));
+}
+
+function avisarCategoriaOficial() {
+  reproducirSonido('error');
+  crearModal({
+    title: 'Categoría oficial 🔒',
+    body: '<p>Las categorías oficiales son de solo lectura. Crea una categoría propia con otro nombre para añadir tus palabras.</p>',
+    okText: 'Entendido'
+  });
+}
+
+function errorSincronizacion(texto) {
+  crearModal({
+    title: 'Error de sincronización',
+    body: `<p>${texto}</p>`,
+    okText: 'Cerrar'
+  });
+}
+
+// Mezcla oficiales + propias (si el nombre coincide, gana la propia) y refresca la pantalla.
+function reconstruirCategorias() {
+  const nuevas = {};
+  remotoOficial.forEach((v, nombre) => { nuevas[nombre] = v.palabras; });
+  remotoPropio.forEach((v, nombre) => { nuevas[nombre] = v.palabras; });
+  if (Object.keys(nuevas).length === 0) return; // nube vacía: se conservan las categorías locales
+
+  const seleccionAnterior = estado.categoriasSeleccionadas || [];
+  estado.categorias = nuevas;
+  estado.categoriasSeleccionadas = Object.keys(nuevas).filter((n) => seleccionAnterior.includes(n));
+  // Si no había ninguna selección válida, selecciona todas.
+  if (estado.categoriasSeleccionadas.length === 0) estado.categoriasSeleccionadas = Object.keys(nuevas);
+
+  saveAll();
+  if (typeof mostrarCategorias === 'function') mostrarCategorias();
+  if (typeof mostrarSeleccionCategorias === 'function') mostrarSeleccionCategorias();
+}
+
+function leerCategorias(snapshot, destino) {
+  destino.clear();
+  snapshot.forEach((documento) => {
+    const data = documento.data();
+    if (typeof data.nombre === 'string' && Array.isArray(data.palabras)) {
+      destino.set(data.nombre, { id: documento.id, palabras: data.palabras });
+    }
+  });
+  reconstruirCategorias();
+}
 
 async function guardarCategoriaNube(nombreCategoria, listaPalabras = []) {
   try {
-    const idExistente = categoriaDocIds.get(nombreCategoria);
+    const usuario = auth.currentUser;
+    if (!usuario) {
+      reconstruirCategorias();
+      errorSincronizacion('Todavía no hay sesión iniciada. Espera un momento e inténtalo de nuevo.');
+      return false;
+    }
+    if (!puedeEditarCategoria(nombreCategoria)) {
+      reconstruirCategorias(); // deshace en pantalla el cambio local
+      avisarCategoriaOficial();
+      return false;
+    }
+
+    const admin = esAdminCategorias();
+    const coleccion = admin ? collection(db, 'categorias') : collection(db, 'usuarios', usuario.uid, 'categorias');
+    const mapa = admin ? remotoOficial : remotoPropio;
+    const existente = mapa.get(nombreCategoria);
 
     const datos = {
       nombre: nombreCategoria,
@@ -79,36 +164,18 @@ async function guardarCategoriaNube(nombreCategoria, listaPalabras = []) {
       actualizadoEn: serverTimestamp()
     };
 
-    if (idExistente) {
+    if (existente) {
       // Actualiza el documento existente; no crea un duplicado.
-      await setDoc(
-        doc(db, "categorias", idExistente),
-        datos,
-        { merge: true }
-      );
+      await setDoc(doc(coleccion, existente.id), datos, { merge: true });
+      mapa.set(nombreCategoria, { id: existente.id, palabras: listaPalabras });
     } else {
-      // Solo crea un documento si todavía no conocemos uno para esta categoría.
-      const referencia = await addDoc(
-        collection(db, "categorias"),
-        {
-          ...datos,
-          creadoEn: serverTimestamp()
-        }
-      );
-
-      categoriaDocIds.set(nombreCategoria, referencia.id);
+      const referencia = await addDoc(coleccion, { ...datos, creadoEn: serverTimestamp() });
+      mapa.set(nombreCategoria, { id: referencia.id, palabras: listaPalabras });
     }
-
-    console.log("Categoría guardada en Firestore:", nombreCategoria);
     return true;
   } catch (error) {
-    console.error("Error al guardar la categoría:", error);
-    crearModal({
-      title: "Error de sincronización",
-      body: "<p>No se pudieron guardar los cambios en la nube. Revisa tu conexión y las reglas de Firestore.</p>",
-      okText: "Cerrar",
-      onCancel: null
-    });
+    console.error('Error al guardar la categoría:', error);
+    errorSincronizacion('No se pudieron guardar los cambios en la nube. Revisa tu conexión y las reglas de Firestore.');
     return false;
   }
 }
@@ -120,100 +187,70 @@ async function guardarNuevaCategoriaNube(nombreCategoria, listaPalabras = []) {
 
 async function eliminarCategoriaNube(nombreCategoria) {
   try {
-    const id = categoriaDocIds.get(nombreCategoria);
-
-    if (!id) {
-      console.error("No se encontró el ID de Firestore para:", nombreCategoria);
+    const usuario = auth.currentUser;
+    if (!usuario) return false;
+    if (!puedeEditarCategoria(nombreCategoria)) {
+      avisarCategoriaOficial();
       return false;
     }
 
-    await deleteDoc(doc(db, "categorias", id));
-    categoriaDocIds.delete(nombreCategoria);
+    const admin = esAdminCategorias();
+    const mapa = admin ? remotoOficial : remotoPropio;
+    const existente = mapa.get(nombreCategoria);
 
-    console.log("Categoría eliminada de Firestore:", nombreCategoria);
+    if (!existente) {
+      // Solo existía en este dispositivo (nunca llegó a la nube): no hay nada que borrar allí.
+      return true;
+    }
+
+    const coleccion = admin ? collection(db, 'categorias') : collection(db, 'usuarios', usuario.uid, 'categorias');
+    await deleteDoc(doc(coleccion, existente.id));
+    mapa.delete(nombreCategoria);
     return true;
   } catch (error) {
-    console.error("Error al eliminar categoría:", error);
-    crearModal({
-      title: "Error de sincronización",
-      body: "<p>No se pudo eliminar la categoría de la nube.</p>",
-      okText: "Cerrar",
-      onCancel: null
-    });
+    console.error('Error al eliminar categoría:', error);
+    errorSincronizacion('No se pudo eliminar la categoría de la nube.');
     return false;
   }
 }
 
-function escucharCategoriasFirebase(alFallar) {
-  return onSnapshot(
-    collection(db, "categorias"),
-    (snapshot) => {
-      if (snapshot.empty) return; // nube vacía: se conservan las categorías locales
-      const categoriasNuevas = {};
-      const idsNuevos = new Map();
-
-      snapshot.forEach((documento) => {
-        const data = documento.data();
-
-        if (
-          typeof data.nombre === "string" &&
-          Array.isArray(data.palabras)
-        ) {
-          categoriasNuevas[data.nombre] = data.palabras;
-          idsNuevos.set(data.nombre, documento.id);
-        }
-      });
-
-      // Mantiene seleccionadas las categorías que todavía existen.
-      const seleccionAnterior = estado.categoriasSeleccionadas || [];
-
-      estado.categorias = categoriasNuevas;
-      categoriaDocIds.clear();
-
-      idsNuevos.forEach((id, nombre) => {
-        categoriaDocIds.set(nombre, id);
-      });
-
-      estado.categoriasSeleccionadas = Object.keys(categoriasNuevas)
-        .filter((nombre) =>
-          seleccionAnterior.includes(nombre)
-        );
-
-      // Si no había ninguna selección válida, selecciona todas.
-      if (estado.categoriasSeleccionadas.length === 0) {
-        estado.categoriasSeleccionadas = Object.keys(categoriasNuevas);
-      }
-
-      saveAll();
-
-      console.log(
-        "Categorías recibidas de Firestore:",
-        Object.keys(estado.categorias).length
-      );
-
-      if (typeof mostrarCategorias === "function") {
-        mostrarCategorias();
-      }
-
-      if (typeof mostrarSeleccionCategorias === "function") {
-        mostrarSeleccionCategorias();
-      }
-    },
+function escucharCategoriasOficiales(alFallar) {
+  if (desuscribirOficiales) desuscribirOficiales();
+  desuscribirOficiales = onSnapshot(
+    collection(db, 'categorias'),
+    (snapshot) => leerCategorias(snapshot, remotoOficial),
     (error) => {
-      console.error("Error al sincronizar categorías:", error);
-      if (typeof alFallar === "function") alFallar(error);
+      console.error('Error al sincronizar categorías oficiales:', error);
+      if (typeof alFallar === 'function') alFallar(error);
     }
   );
 }
 
-// Las reglas de Firestore exigen un usuario autenticado: se espera a la sesión anónima (online.js)
-// antes de escuchar y, si el listener falla, se reintenta. Se arranca más abajo, tras initOnline.
+// Las categorías propias dependen del usuario: se vuelve a escuchar cada vez que cambia la sesión
+// (por ejemplo, al entrar con Google).
+function escucharCategoriasPropias(uid) {
+  if (uid === uidPropias) return;
+  if (desuscribirPropias) { desuscribirPropias(); desuscribirPropias = null; }
+  remotoPropio.clear();
+  uidPropias = uid;
+  if (!uid) { reconstruirCategorias(); return; }
+  desuscribirPropias = onSnapshot(
+    collection(db, 'usuarios', uid, 'categorias'),
+    (snapshot) => leerCategorias(snapshot, remotoPropio),
+    (error) => console.error('Error al sincronizar tus categorías:', error)
+  );
+}
+
+// Las reglas de Firestore exigen un usuario autenticado para las propias: se espera a la sesión (online.js).
+// Las oficiales son de lectura pública, así que se escuchan enseguida y, si falla, se reintenta.
 function iniciarCategoriasNube(intento = 0) {
-  // tope de 4 s: si la sesión tarda (o no hay red) igual se escucha, para no dejar las categorías sin cargar
-  Promise.race([Promise.resolve(window.__onlineListo).catch(() => false), new Promise((r) => setTimeout(r, 4000))]).then(() => {
-    escucharCategoriasFirebase(() => {
-      if (intento < 4) setTimeout(() => iniciarCategoriasNube(intento + 1), 1500 * (intento + 1));
-    });
+  escucharCategoriasOficiales(() => {
+    if (intento < 4) setTimeout(() => iniciarCategoriasNube(intento + 1), 1500 * (intento + 1));
+  });
+  onAuthStateChanged(auth, (usuario) => {
+    escucharCategoriasPropias(usuario ? usuario.uid : null);
+    // al cambiar de usuario puede cambiar qué categorías son editables
+    if (typeof mostrarCategorias === 'function') mostrarCategorias();
   });
 }
 
@@ -1649,6 +1686,13 @@ function mostrarCategorias() {
     catFuerte.textContent = cat;
     title.appendChild(catFuerte);
     title.appendChild(document.createTextNode(` (${estado.categorias[cat].length})`));
+    const soloLectura = !puedeEditarCategoria(cat);
+    if (soloLectura) {
+      const candado = document.createElement('span');
+      candado.textContent = ' 🔒';
+      candado.title = 'Categoría oficial (solo lectura)';
+      title.appendChild(candado);
+    }
     title.addEventListener('click', () => {
       reproducirSonido('click');
       abrirCategoria(cat);
@@ -1657,6 +1701,7 @@ function mostrarCategorias() {
     delBtn.className = 'delete-btn';
     delBtn.textContent = 'X';
     delBtn.addEventListener('click', () => {
+      if (!puedeEditarCategoria(cat)) return avisarCategoriaOficial();
       if (Object.keys(estado.categorias).length <= 1) {
         reproducirSonido('error');
         crearModal({
@@ -1800,6 +1845,7 @@ function mostrarPalabras() {
     del.className = 'delete-btn';
     del.textContent = 'X';
     del.addEventListener('click', () => {
+      if (!puedeEditarCategoria(categoriaActual)) return avisarCategoriaOficial();
       if (palabras.length <= 1) {
         reproducirSonido('error');
         return crearModal({ title: 'Error', body: '<p>Mínimo 1 palabra.</p>', okText: 'Cerrar', onCancel: null });
@@ -1828,6 +1874,7 @@ function mostrarPalabras() {
 }
 
 async function agregarPalabraYpistas() {
+  if (!puedeEditarCategoria(categoriaActual)) return avisarCategoriaOficial();
   const validacionPalabra = validarTextoCampo($('nuevaPalabra').value, CONFIG_JUEGO.MAX_LONGITUD_CATEGORIA);
   if (!validacionPalabra.valido) {
     reproducirSonido('error');
